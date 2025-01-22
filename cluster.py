@@ -95,7 +95,6 @@ def cluster(input_string, model):
     tokens = [decode([start_ids[i]]) for i in range(num_tokens)]
 
     df = pd.DataFrame(token_outbeddings)
-    print(df)
     df["token"] = tokens
     df["label"] = best_labels
 
@@ -113,6 +112,6 @@ print(f"Total {len(dataset)} stories.")
 for idx, story in enumerate(dataset):
     print(f"clustering story {idx}...")
     df = cluster(story["text"], model)
-    df.to_pickle(f"{dir_path}/{idx}.pkl", index=False)
+    df.to_pickle(f"{dir_path}/{idx}.pkl")
     print(f"done with {idx}.\n")
 

@@ -6,3 +6,7 @@ tiktoken
 wandb
 tqdm
 notebook
+scikit-learn
+matplotlib
+umap-learn
+plotly

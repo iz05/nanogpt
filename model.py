@@ -192,6 +192,38 @@ class GPT(nn.Module):
 
         return logits, loss
 
+    def outbeddings(self, idx):
+        """
+        Returns the output embeddings before projecting to logits.
+
+        Args:
+            idx (torch.LongTensor): Input tensor of token indices with shape (batch_size, seq_len).
+
+        Returns:
+            torch.Tensor: Output embeddings with shape (batch_size, seq_len, n_embd).
+        """
+        device = idx.device
+        b, t = idx.size()
+        max_block_size = self.config.block_size
+
+        # Truncate the input if it exceeds block size
+        if t > max_block_size:
+            idx = idx[:, :max_block_size]  # Keep only the first max_block_size tokens
+            t = max_block_size
+
+        # assert t <= self.config.block_size, f"Cannot forward sequence of length {t}, block size is only {self.config.block_size}"
+        pos = torch.arange(0, t, dtype=torch.long, device=device)  # shape (t)
+
+        # Forward the GPT model
+        tok_emb = self.transformer.wte(idx)  # Token embeddings: (b, t, n_embd)
+        pos_emb = self.transformer.wpe(pos)  # Position embeddings: (t, n_embd)
+        x = self.transformer.drop(tok_emb + pos_emb)
+        for block in self.transformer.h:
+            x = block(x)
+        output_embeddings = self.transformer.ln_f(x)  # Final layer normalization
+
+        return output_embeddings
+
     def crop_block_size(self, block_size):
         # model surgery to decrease the block size if necessary
         # e.g. we may load the GPT2 pretrained model checkpoint (block size 1024)

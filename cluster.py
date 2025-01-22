@@ -87,7 +87,7 @@ def cluster(input_string, model):
             outbedding_shape = outbeddings.shape
             print("Outbeddings shape:", outbedding_shape)
     
-    token_outbeddings = outbeddings.squeeze(0).numpy()
+    token_outbeddings = outbeddings.squeeze(0).cpu().numpy()
     best_k, best_labels, best_score = find_best_k(token_outbeddings, max_k=10)
     print(f"Best K: {best_k}, Silhouette Score: {best_score}")
 
@@ -105,7 +105,9 @@ dir_path = 'out-tinystories-cluster' # where to save the cluster data
 os.makedirs(dir_path, exist_ok=True)
 print(f"Directory {dir_path} created successfully.")
 
+max_elements = 10000
 dataset = load_dataset("roneneldan/TinyStories", split="train")
+dataset = dataset.select(range(min(len(dataset), max_elements)))
 print(f"Total {len(dataset)} stories.")
 
 for idx, story in enumerate(dataset):

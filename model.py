@@ -192,7 +192,7 @@ class GPT(nn.Module):
 
         return logits, loss
 
-    def outbeddings(self, idx):
+    def get_embeddings(self, idx):
         """
         Returns the output embeddings before projecting to logits.
 
@@ -211,6 +211,8 @@ class GPT(nn.Module):
             idx = idx[:, :max_block_size]  # Keep only the first max_block_size tokens
             t = max_block_size
 
+        embeddings = []
+
         # assert t <= self.config.block_size, f"Cannot forward sequence of length {t}, block size is only {self.config.block_size}"
         pos = torch.arange(0, t, dtype=torch.long, device=device)  # shape (t)
 
@@ -218,11 +220,14 @@ class GPT(nn.Module):
         tok_emb = self.transformer.wte(idx)  # Token embeddings: (b, t, n_embd)
         pos_emb = self.transformer.wpe(pos)  # Position embeddings: (t, n_embd)
         x = self.transformer.drop(tok_emb + pos_emb)
+        embeddings.append(x)
         for block in self.transformer.h:
+            embeddings.append(x)
             x = block(x)
-        output_embeddings = self.transformer.ln_f(x)  # Final layer normalization
+        x = self.transformer.ln_f(x)  # Final layer normalization
+        embeddings.append(x)
 
-        return output_embeddings
+        return embeddings
 
     def crop_block_size(self, block_size):
         # model surgery to decrease the block size if necessary

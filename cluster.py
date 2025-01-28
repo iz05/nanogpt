@@ -13,9 +13,12 @@ from model import GPT, GPTConfig
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
+import numpy as np
 
 from sklearn.cluster import KMeans
 from sklearn.metrics import silhouette_score
+from sklearn.cluster import SpectralClustering
+from sklearn.model_selection import GridSearchCV
 
 # Parameters
 out_dir = 'out-tinystories'  # Directory where the model is saved
@@ -59,59 +62,116 @@ else:
     encode = lambda s: enc.encode(s, allowed_special={"<|endoftext|>"})
     decode = lambda l: enc.decode(l)
 
-def find_best_k(data, max_k=10):
-    best_k = 2
-    best_score = -1
-    best_labels = None
+# def find_best_k(data, max_k=10):
+#     best_k = 2
+#     best_score = -1
+#     best_labels = None
 
-    for k in range(2, max_k + 1):
-        kmeans = KMeans(n_clusters=k, random_state=42, n_init=10)
-        labels = kmeans.fit_predict(data)
-        score = silhouette_score(data, labels)  # Silhouette Score
+#     for k in range(2, max_k + 1):
+#         kmeans = KMeans(n_clusters=k, random_state=42, n_init=10)
+#         labels = kmeans.fit_predict(data)
+#         score = silhouette_score(data, labels)  # Silhouette Score
 
-        if score > best_score:
-            best_k = k
-            best_score = score
-            best_labels = labels
+#         if score > best_score:
+#             best_k = k
+#             best_score = score
+#             best_labels = labels
 
-    return best_k, best_labels, best_score
+#     return best_k, best_labels, best_score
 
-def cluster(input_string, model):
-    # Encode the input string
+# def cluster(input_string, model):
+#     # Encode the input string
+#     start_ids = encode(input_string)
+#     x = torch.tensor(start_ids, dtype=torch.long, device=device).unsqueeze(0)
+
+#     with torch.no_grad():
+#         with ctx:
+#             outbeddings = model.outbeddings(x)
+#             outbedding_shape = outbeddings.shape
+#             print("Outbeddings shape:", outbedding_shape)
+    
+#     token_outbeddings = outbeddings.squeeze(0).cpu().numpy()
+#     best_k, best_labels, best_score = find_best_k(token_outbeddings, max_k=10)
+#     print(f"Best K: {best_k}, Silhouette Score: {best_score}")
+
+#     num_tokens = token_outbeddings.shape[0]
+#     tokens = [decode([start_ids[i]]) for i in range(num_tokens)]
+
+#     df = pd.DataFrame(token_outbeddings)
+#     df["token"] = tokens
+#     df["label"] = best_labels
+
+#     return df
+
+# Define custom scoring for GridSearchCV
+def silhouette_scorer(estimator, X):
+    labels = estimator.fit_predict(X)
+    if len(set(labels)) < 2:  # Silhouette needs at least 2 clusters
+        return -1
+    return silhouette_score(X, labels)
+
+def cluster(X):
+    # Model and parameter grid
+    param_grid = {
+        'n_clusters': [i for i in range(1, int(len(X) ** 0.5))],
+        'n_neighbors': [i for i in range(5, 30, 5)],
+        'affinity': ['nearest_neighbors']
+    }
+
+    # GridSearchCV setup
+    model = SpectralClustering(random_state=42, assign_labels='kmeans')
+    grid_search = GridSearchCV(model, param_grid, scoring=silhouette_scorer, cv=3)
+    grid_search.fit(X)
+
+    # Best parameters and score
+    print("Best Params:", grid_search.best_params_)
+    print("Best Silhouette Score:", grid_search.best_score_)
+
+    # Plot the best clustering result
+    best_model = grid_search.best_estimator_
+    best_labels = best_model.fit_predict(X)
+
+    return best_labels
+
+def get_df(input_string, model):
     start_ids = encode(input_string)
     x = torch.tensor(start_ids, dtype=torch.long, device=device).unsqueeze(0)
 
     with torch.no_grad():
         with ctx:
-            outbeddings = model.outbeddings(x)
-            outbedding_shape = outbeddings.shape
-            print("Outbeddings shape:", outbedding_shape)
+            embeddings = model.get_embeddings(x)
+            print("Embeddings shape:", embeddings[0].shape)
+
+    embeddings_squeezed = [embedding.squeeze(0).cpu().tolist() for embedding in embeddings]
+    num_tokens = len(embeddings_squeezed[0])
     
-    token_outbeddings = outbeddings.squeeze(0).cpu().numpy()
-    best_k, best_labels, best_score = find_best_k(token_outbeddings, max_k=10)
-    print(f"Best K: {best_k}, Silhouette Score: {best_score}")
+    df = pd.DataFrame({
+        f"emb{i}" : [emb for emb in embeddings_squeezed[i]] for i in range(len(embeddings_squeezed))
+    })
 
-    num_tokens = token_outbeddings.shape[0]
-    tokens = [decode([start_ids[i]]) for i in range(num_tokens)]
+    for idx, embs in enumerate(embeddings_squeezed):
+        best_labels = cluster(embs)
+        df[f"label{idx}"] = best_labels
 
-    df = pd.DataFrame(token_outbeddings)
-    df["token"] = tokens
-    df["label"] = best_labels
+    df["token"] = [decode([start_ids[i]]) for i in range(num_tokens)]
 
     return df
 
-dir_path = 'out-tinystories-cluster' # where to save the cluster data
+dir_path = 'out-tinystories-cluster-spectral' # where to save the cluster data
 os.makedirs(dir_path, exist_ok=True)
 print(f"Directory {dir_path} created successfully.")
 
-max_elements = 10000
+max_elements = 1000
+join_stories = 10
 dataset = load_dataset("roneneldan/TinyStories", split="train")
 dataset = dataset.select(range(min(len(dataset), max_elements)))
-print(f"Total {len(dataset)} stories.")
+texts = [example["text"] for example in dataset]
+training = ["<|endofstory|>".join(texts[i:i+join_stories]) for i in range(0, len(texts) - join_stories, join_stories)]
+print(f"Total {len(training)} training.")
 
-for idx, story in enumerate(dataset):
+for idx, story in enumerate(training):
     print(f"clustering story {idx}...")
-    df = cluster(story["text"], model)
-    df.to_pickle(f"{dir_path}/{idx}.pkl")
+    df = get_df(story, model)
+    df.to_csv(f"{dir_path}/{idx}.csv", index = False)
     print(f"done with {idx}.\n")
 

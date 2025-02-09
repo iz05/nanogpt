@@ -7,26 +7,33 @@ import plotly.graph_objects as go
 app = Flask(__name__)
 
 # Load data and prepare coordinates
-df = pd.read_csv('out-tinystories-cluster-spectral/30.csv')  # Update path
-layers = 7
+df = pd.read_csv('out-tinystories-cluster-spectral/30.csv')  # Update with your actual CSV path
+layers = 7  # Update this based on your actual number of layers
 all_embs = []
 for i in range(1, layers+1):
     all_embs.extend([eval(emb) for emb in df[f"emb{i}"]])
 
 n_neighbors = 15
+# Create the affinity matrix manually
 affinity_matrix = kneighbors_graph(all_embs, n_neighbors=n_neighbors, mode='connectivity', include_self=False).toarray()
-affinity_matrix = np.clip(affinity_matrix + affinity_matrix.T, a_min=0, a_max=1)
-degree_matrix = np.diag(np.sum(affinity_matrix, axis=1))
+affinity_matrix = np.clip(affinity_matrix + affinity_matrix.T, a_min = 0, a_max = 1)
+# Compute the Laplacian matrix
+degree_matrix = np.diag(np.sum(affinity_matrix, axis=1))  # Degree matrix
 laplacian_matrix = degree_matrix - affinity_matrix
+# Compute eigenvalues of the Laplacian matrix
 eigenvalues, eigenvectors = np.linalg.eig(laplacian_matrix)
-eig = sorted([(eigenvalues[i], eigenvectors[i]) for i in range(len(eigenvalues))], key=lambda x: x[0])
+eig = [(eigenvalues[i], eigenvectors[i]) for i in range(len(eigenvalues))]
+eig = sorted(eig, key=lambda x: x[0])
 n_points = 256
+x = {}
+y = {}
+z = {}
 
-x, y, z = {}, {}, {}
 for i in range(1, 8):
     x[i] = []
     y[i] = []
     z[i] = []
+
     for j in range((i - 1) * n_points, i * n_points):
         x[i].append(eig[0][1][j])
         y[i].append(eig[1][1][j])
@@ -39,21 +46,14 @@ def linear_combine(x1, y1, z1, x2, y2, z2, alpha):
         [z1[i] * (1 - alpha) + z2[i] * alpha for i in range(len(z1))]
     )
 
-def generate_figure(selected_flags):
+def generate_figure(token_to_query):
+    def get_colors_and_text(tokens):
+        return (
+            ['rgba(255, 165, 0, 1)' if t == token_to_query else 'rgba(0, 0, 255, 0.1)' for t in tokens],
+            [token_to_query if t == token_to_query else '' for t in tokens]
+        )
 
-    def get_colors_and_text(df_tokens):
-        colors = []
-        texts = []
-        for i, t in enumerate(df_tokens):
-            if selected_flags[i]:
-                colors.append('rgba(255, 165, 0, 1)')
-                texts.append(t)
-            else:
-                colors.append('rgba(0, 0, 255, 0.1)')
-                texts.append('')
-        return colors, texts
-
-    # Rest of the figure generation code remains the same
+    # Create initial frame
     initial_colors, initial_text = get_colors_and_text(df['token'])
     fig = go.Figure(
         data=[go.Scatter3d(
@@ -80,7 +80,7 @@ def generate_figure(selected_flags):
         )
     )
 
-    # Animation frames code remains the same
+    # Create animation frames
     frames = []
     for i in range(1, layers):
         for alpha in np.arange(0, 1, 0.05):
@@ -102,9 +102,10 @@ def generate_figure(selected_flags):
                 layout=go.Layout(title=dict(text=f"Layer {(i+alpha):.2f}"))
             ))
     
+    
     fig.frames = frames
 
-    # Animation controls code remains the same
+     # Add animation controls with pause state
     fig.update_layout(
         updatemenus=[dict(
             type="buttons",
@@ -118,12 +119,17 @@ def generate_figure(selected_flags):
                 dict(label="Pause",
                      method="animate",
                      args=[[None], {"frame": {"duration": 0, "redraw": True},
-                                    "mode": "immediate"}])
+                                    "mode": "immediate"}],
+                     # Set pause as initially active
+                     args2=[[None], {"frame": {"duration": 0, "redraw": True},
+                                     "mode": "immediate"}])
             ],
+            # Start in paused state (index 1)
             active=1
         )]
     )
     
+     # Add JavaScript to force pause state
     html = fig.to_html(full_html=False)
     html += """
     <script>
@@ -140,21 +146,12 @@ def generate_figure(selected_flags):
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
-    tokens = df['token']
-    selected_flags = [0] * len(tokens)
-    
-    if request.method == 'POST':
-        selected_indices = list(map(int, request.form.getlist('indices[]')))
-        for idx in selected_indices:
-            if 0 <= idx < len(tokens):
-                selected_flags[idx] = 1
-    else:
-        selected_flags[0] = 1  # Default to first token
-
-    return render_template('index.html',
-                         tokens=enumerate(tokens),
-                         selected_flags=selected_flags,
-                         fig_html=generate_figure(selected_flags))
+    tokens = df['token'].unique().tolist()
+    selected_token = request.form.get('token', tokens[0]) if request.method == 'POST' else tokens[0]
+    return render_template('index.html', 
+                         tokens=tokens,
+                         selected_token=selected_token,
+                         fig_html=generate_figure(selected_token))
 
 if __name__ == '__main__':
     app.run(debug=True)

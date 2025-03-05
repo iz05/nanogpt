@@ -1,7 +1,10 @@
+import os
+
 # train a miniature character-level tinystories model
 # good for debugging and playing on macbooks and such
+n_layer = int(os.environ.get("N_LAYER", 6))
 
-out_dir = 'out-tinystories'
+out_dir = f'out-tinystories-{n_layer}'
 eval_interval = 250 # keep frequent because we'll overfit
 eval_iters = 200
 log_interval = 10 # don't print too too often
@@ -19,7 +22,6 @@ batch_size = 64
 block_size = 256 # context of up to 256 tokens
 
 # baby GPT model :)
-n_layer = 6
 n_head = 1
 n_embd = 384
 dropout = 0.2

@@ -10,3 +10,8 @@ __pycache__/
 input.txt
 env/
 venv/
+junk/
+gif_plots/
+gif_plots_3d/
+out-tinystories-cluster-spectral/
+tinystories/

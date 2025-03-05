@@ -2,6 +2,15 @@ import os
 import tiktoken
 import numpy as np
 
+# # download the tinystories dataset
+# from datasets import load_from_disk
+
+# dataset = load_from_disk("tinystories")
+
+# # Split the dataset manually
+# train_dataset = dataset["train"]
+# val_dataset = dataset["validation"]
+
 # download the tinystories dataset
 from datasets import load_dataset
 
